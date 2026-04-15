@@ -1,0 +1,123 @@
+
+<style>
+  h2.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+  #game-root{padding:1.5rem 0;font-family:var(--font-sans);color:var(--color-text-primary)}
+  #game-root h1{font-size:22px;font-weight:500;margin-bottom:4px;text-align:center}
+  .sub{font-size:13px;color:var(--color-text-secondary);text-align:center;margin-bottom:1.5rem}
+  .board{display:grid;gap:10px;justify-content:center;margin-bottom:1.25rem}
+  .card-wrap{width:80px;height:80px;perspective:800px;cursor:pointer}
+  .card-inner{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform 0.4s}
+  .card-wrap.flip .card-inner{transform:rotateY(180deg)}
+  .card-face{position:absolute;inset:0;border-radius:var(--border-radius-md);display:flex;align-items:center;justify-content:center;font-size:26px;backface-visibility:hidden;border:0.5px solid var(--color-border-tertiary)}
+  .card-front{background:var(--color-background-secondary)}
+  .card-back{background:var(--color-background-primary);transform:rotateY(180deg)}
+  .card-wrap.matched .card-face{border-color:var(--color-border-success);background:var(--color-background-success)}
+  .stats{display:flex;gap:12px;justify-content:center;margin-bottom:1rem}
+  .stat{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:8px 16px;font-size:13px;color:var(--color-text-secondary);text-align:center}
+  .stat span{display:block;font-size:18px;font-weight:500;color:var(--color-text-primary)}
+  .controls{display:flex;gap:8px;justify-content:center}
+  .controls button,.controls select{padding:7px 14px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);font-size:13px;cursor:pointer}
+  .controls button:hover{background:var(--color-background-secondary)}
+  .overlay{position:absolute;inset:0;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;border-radius:var(--border-radius-lg);z-index:10}
+  .overlay.show{display:flex}
+  .win-box{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.5rem 2rem;text-align:center}
+  .win-box h2{font-size:20px;font-weight:500;margin-bottom:6px}
+  .win-box p{font-size:13px;color:var(--color-text-secondary);margin-bottom:1rem}
+  .win-box button{padding:8px 20px;border-radius:var(--border-radius-md);border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);font-size:13px;cursor:pointer}
+  .win-box button:hover{background:var(--color-background-secondary)}
+  #game-wrap{position:relative;background:var(--color-background-secondary);border-radius:var(--border-radius-lg);border:0.5px solid var(--color-border-tertiary);padding:1.5rem}
+</style>
+
+<h2 class="sr-only">Memory card game — flip cards to find matching pairs</h2>
+<div id="game-root">
+  <h1>Memory card game</h1>
+  <p class="sub">Match all pairs as fast as you can!</p>
+  <div id="game-wrap">
+    <div class="board" id="board"></div>
+    <div class="stats">
+      <div class="stat"><span id="moves">0</span>Moves</div>
+      <div class="stat"><span id="matches">0</span>Matches</div>
+      <div class="stat"><span id="time">0</span>Seconds</div>
+    </div>
+    <div class="controls">
+      <button id="restartBtn">Restart</button>
+      <select id="diffSel">
+        <option value="8">Easy (8 pairs)</option>
+        <option value="10">Medium (10 pairs)</option>
+        <option value="12">Hard (12 pairs)</option>
+      </select>
+    </div>
+    <div class="overlay" id="overlay">
+      <div class="win-box">
+        <h2>You win!</h2>
+        <p id="finalStats"></p>
+        <button id="playAgain">Play again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const EMOJIS=['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐸','🐵','🐔','🐧','🐦','🦆','🦉','🦇','🐝','🦋','🐛','🐌'];
+let pairs=8,cards=[],flipped=[],matched=0,moves=0,locked=false,timer=null,secs=0;
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+function startTimer(){clearInterval(timer);secs=0;document.getElementById('time').textContent='0';timer=setInterval(()=>{secs++;document.getElementById('time').textContent=secs;},1000);}
+
+function init(){
+  matched=0;moves=0;locked=false;flipped=[];
+  document.getElementById('moves').textContent='0';
+  document.getElementById('matches').textContent='0';
+  document.getElementById('overlay').classList.remove('show');
+  clearInterval(timer);secs=0;document.getElementById('time').textContent='0';
+  const chosen=EMOJIS.slice(0,pairs);
+  cards=shuffle([...chosen,...chosen]);
+  const board=document.getElementById('board');
+  const cols=pairs<=8?4:pairs<=10?5:6;
+  board.style.gridTemplateColumns=`repeat(${cols},80px)`;
+  board.innerHTML='';
+  cards.forEach((em,i)=>{
+    const w=document.createElement('div');
+    w.className='card-wrap';
+    w.dataset.index=i;
+    w.innerHTML=`<div class="card-inner"><div class="card-face card-front"></div><div class="card-face card-back">${em}</div></div>`;
+    w.addEventListener('click',()=>flip(w,em));
+    board.appendChild(w);
+  });
+}
+
+function flip(el,em){
+  if(locked||el.classList.contains('flip')||el.classList.contains('matched'))return;
+  if(flipped.length===0)startTimer();
+  el.classList.add('flip');
+  flipped.push({el,em});
+  if(flipped.length===2){
+    locked=true;moves++;
+    document.getElementById('moves').textContent=moves;
+    if(flipped[0].em===flipped[1].em){
+      flipped[0].el.classList.add('matched');
+      flipped[1].el.classList.add('matched');
+      matched++;
+      document.getElementById('matches').textContent=matched;
+      flipped=[];locked=false;
+      if(matched===pairs){
+        clearInterval(timer);
+        document.getElementById('finalStats').textContent=`${moves} moves in ${secs} seconds`;
+        document.getElementById('overlay').classList.add('show');
+      }
+    }else{
+      setTimeout(()=>{
+        flipped[0].el.classList.remove('flip');
+        flipped[1].el.classList.remove('flip');
+        flipped=[];locked=false;
+      },900);
+    }
+  }
+}
+
+document.getElementById('restartBtn').addEventListener('click',init);
+document.getElementById('playAgain').addEventListener('click',init);
+document.getElementById('diffSel').addEventListener('change',e=>{pairs=+e.target.value;init();});
+init();
+</script>
